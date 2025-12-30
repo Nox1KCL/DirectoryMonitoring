@@ -1,0 +1,35 @@
+name: Build EXE
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    # Змінюємо на Windows, щоб отримати .exe
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install watchdog pyinstaller
+
+    - name: Build EXE with PyInstaller
+      run: |
+        # --onefile збирає все в один exe
+        # --noconsole прибирає чорне вікно терміналу при запуску
+        pyinstaller --onefile --noconsole app/main.py
+
+    - name: Upload EXE Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: DirectoryMonitor-Windows
+        path: dist/main.exe
