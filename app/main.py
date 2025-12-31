@@ -6,6 +6,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from platformdirs import user_downloads_dir, user_pictures_dir
 
+from user import User
+
 def clear_console():
     if os.name == 'nt':
         os.system('cls')
@@ -56,11 +58,8 @@ def file_moving(folder_name: str, file: Path, is_picture=False):
 class DownloadHandler(FileSystemEventHandler):
     def process_file(self, file) -> None:
         file = Path(file)
-
-        if not file.exists():
-            return
         
-        if file.is_dir():
+        if not file.exists() or file.is_dir():
             return
 
         if file.suffix in ['.crdownload', '.part', '.tmp']:
@@ -84,13 +83,14 @@ class DownloadHandler(FileSystemEventHandler):
 
 download_handler = DownloadHandler()
 observer = Observer()
-
 observer.schedule(download_handler, str(downloads_path), recursive=False)
 observer.start()
 
 # Main start
-
 clear_console()
+
+file_name = 'user_data.json'
+user = User(file_name)
 
 print('-' * 20)
 print(downloads_path)
@@ -99,8 +99,13 @@ print('-' * 20)
 
 try:
     while True:
+        if user.user_first_launch:
+            print("Its your first launch!", user.user_first_launch)
+            user.user_first_launch = False
+         
         time.sleep(10)
 except KeyboardInterrupt:
     observer.stop()
-observer.join()
-
+finally:
+    user.save_to_json(user.user_data, file_name)
+    observer.join()
