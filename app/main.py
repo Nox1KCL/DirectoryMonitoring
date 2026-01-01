@@ -2,11 +2,13 @@ import os
 from pathlib import Path
 import shutil
 import time
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from platformdirs import user_downloads_dir, user_pictures_dir
 
 from user import User
+
+
 
 def clear_console():
     if os.name == 'nt':
@@ -14,17 +16,8 @@ def clear_console():
     else:
         os.system('clear')
 
-rules = {
-    "Images": [".jpg", ".jpeg", ".png", ".gif"],
-    "Documents": [".pdf", ".docx", ".txt", ".xlsx"],
-    "Audio": [".mp3", ".wav"],
-    "Programs": [".exe", ".deb", ".appimage"]
-}
-
-downloads_path = Path(user_downloads_dir())
-pictures_path = Path(user_pictures_dir())
-
-def file_moving(folder_name: str, file: Path, is_picture=False):
+# Функція яка пересуває файл 
+def file_moving(folder_name: str, file: Path, is_picture=False) -> None:
     if is_picture:
         destination_path = pictures_path / folder_name
     else:
@@ -49,15 +42,32 @@ def file_moving(folder_name: str, file: Path, is_picture=False):
         shutil.move(file, final_path)
         print(f"Файл {file.name} переміщено в {folder_name}")
     except FileNotFoundError:
-        pass
+        print("Файл не найдено")
     except Exception as e:
         print(f"Невідома помилка {e}")
 
     return None
 
+
+file_name = 'user_data.json'
+user = User(file_name)
+
+# Словник який відповідає за "сортування" файлів по принципу розширення : папка
+rules = {
+    "Images": [".jpg", ".jpeg", ".png", ".gif"],
+    "Documents": [".pdf", ".docx", ".txt", ".xlsx"],
+    "Audio": [".mp3", ".wav"],
+    "Programs": [".exe", ".deb", ".appimage"]
+}
+
+downloads_path = user.downloads_path
+pictures_path = user.pictures_path
+
+
+# Обробник бібліотеки watchdog, який слідкує за подіями у папці Download
 class DownloadHandler(FileSystemEventHandler):
-    def process_file(self, file) -> None:
-        file = Path(file)
+    def process_file(self, file_path) -> None:
+        file = Path(file_path)
         
         if not file.exists() or file.is_dir():
             return
@@ -72,25 +82,27 @@ class DownloadHandler(FileSystemEventHandler):
 
         return
 
-
+    # Реагує на файл який створено / добавлено
     def on_created(self, event) -> None:
         self.process_file(event.src_path)
 
+    # Реагує на переміщення / копіювання / перейменування файлу
     def on_moved(self, event) -> None:
         print(f"Файл перейменовано: з {Path(str(event.src_path)).name} на {Path(str(event.dest_path)).name}")
         self.process_file(event.dest_path)
 
-
+# Створюємо екземпляр класу обробника
 download_handler = DownloadHandler()
+# Екземляр спостерігача
 observer = Observer()
+# Налаштовується спостерігача
 observer.schedule(download_handler, str(downloads_path), recursive=False)
+# запуск спостерігача
 observer.start()
 
-# Main start
-clear_console()
 
-file_name = 'user_data.json'
-user = User(file_name)
+
+clear_console()
 
 print('-' * 20)
 print(downloads_path)
@@ -99,13 +111,13 @@ print('-' * 20)
 
 try:
     while True:
-        if user.user_first_launch:
-            print("Its your first launch!", user.user_first_launch)
-            user.user_first_launch = False
+        if user.first_launch:
+            print("Its your first launch!", user.first_launch)
+            user.first_launch = False
          
         time.sleep(10)
 except KeyboardInterrupt:
     observer.stop()
 finally:
-    user.save_to_json(user.user_data, file_name)
+    user.save_to_json(user.data, file_name)
     observer.join()

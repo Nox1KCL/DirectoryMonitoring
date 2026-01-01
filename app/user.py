@@ -1,9 +1,15 @@
 import json
 import uuid
+from pathlib import Path
+from platformdirs import user_downloads_dir, user_pictures_dir
+
 
 
 class User:
     def __init__(self, file_name: str) -> None:
+        self.downloads_path = Path(user_downloads_dir())
+        self.pictures_path = Path(user_pictures_dir())
+
         self.__user_data = self.load_from_json(file_name)
 
         current_hwid = self.get_hwid()
@@ -18,42 +24,37 @@ class User:
         elif self.__user_data.get('id') != current_hwid:
             print("Помилка: Цей конфігураційний файл не належить цьому пристрою!")
             exit() 
+
     
     @property
-    def user_id(self) -> str:
+    def data(self) -> dict:
+        return self.__user_data
+
+
+    @property
+    def id(self) -> str:
         return self.__user_data['id']
 
 
     @property
-    def user_first_launch(self) -> bool:
+    def first_launch(self) -> bool:
         return self.__user_data['first_launch']
     
-    @user_first_launch.setter
-    def user_first_launch(self, first_launch: bool) -> None:
+    @first_launch.setter
+    def first_launch(self, first_launch: bool) -> None:
         self.__user_data['first_launch'] = first_launch
 
 
-    @property
-    def user_data(self) -> dict:
-        return self.__user_data
-
-
-    def configuration(self) -> tuple:
-        first_launch = self.__user_data['first_launch']
-        id = self.__user_data['id']
-        return first_launch, id
-
-
     def load_from_json(self, file_name: str) -> dict:
-        data = self.open_file(file_name)
-        return data
+        user_data = self.open_file(file_name)
+        return user_data
 
     
     def save_to_json(self, data: dict, file_name: str) -> None:
         with open(file_name, 'w', encoding='utf-8') as file:
             json.dump(data, file, ensure_ascii=False, indent=2)
 
-
+    # Отримуємо унікальний айді мережевої карти ПК
     def get_hwid(self) -> str:
         return str(uuid.getnode())
 
@@ -61,8 +62,8 @@ class User:
     def open_file(self, file_name: str) -> dict:
         try:
             with open(file_name, 'r', encoding='utf-8') as file:
-                data = json.load(file)
-                return data
+                file_data = json.load(file)
+                return file_data
         except FileNotFoundError:
             print("File not found")
             return dict()
