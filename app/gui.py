@@ -20,7 +20,7 @@ class App(ctk.CTk):
         self.btn_stop = ctk.CTkButton(self, text="Stop", command=self.stop_click, state="disabled") # Спочатку вимкнена
         self.btn_stop.pack(pady=10)
 
-
+    # Колбек
     def update_log_box(self, message):
         self.textbox.insert("end", message + "\n")
         self.textbox.see("end")

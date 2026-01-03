@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 import shutil
 import time
@@ -24,22 +25,35 @@ def file_moving(folder_name: str, file: Path, is_picture=False) -> None:
     else:
         destination_path = downloads_path / folder_name
 
+    # Створюємо папку по остаточному шляху
     destination_path.mkdir(exist_ok=True)
 
+    # шлях куда зберігати сам файл
     final_path = destination_path / file.name
 
     if final_path.exists():
-        counter = 1
-        stem = file.stem
+        stem = file.stem  
         suffix = file.suffix
         
-        while final_path.exists():
-            new_name = f"{stem} ({counter}){suffix}"
+        match = re.search(r'^(.*) \((\d+)\)$', stem)
+        
+        if match:
+            base_name = match.group(1)
+            counter = int(match.group(2)) + 1
+        else:
+            base_name = stem
+            counter = 1
+            
+        while True:
+            new_name = f"{base_name} ({counter}){suffix}"
             final_path = destination_path / new_name
+            
+            if not final_path.exists():
+                break
             counter += 1
 
     try:
-        time.sleep(0.5)
+        time.sleep(0.1)
         shutil.move(file, final_path)
         print(f"Файл {file.name} переміщено в {folder_name}")
     except FileNotFoundError:
@@ -89,9 +103,10 @@ pictures_path = user.pictures_path
 class DownloadHandler(FileSystemEventHandler):
     def __init__(self, callback_func):
         self.callback_func = callback_func
+        # Створюємо структуру для уникнення проблеми багаторазового збереження
         self.processing_files = set()
 
-
+    # Колбек
     def log(self, message):
         if self.callback_func:      
             self.callback_func(message) 
@@ -102,9 +117,11 @@ class DownloadHandler(FileSystemEventHandler):
     def process_file(self, file_path) -> None:
         file = Path(file_path)
 
+        # Перевірка чи в сеті є файл який вже обробляли
         if str(file) in self.processing_files:
             return
         
+        # Додаємо в сет файл який обробляємо
         self.processing_files.add(str(file))
 
         try:
@@ -117,19 +134,30 @@ class DownloadHandler(FileSystemEventHandler):
 
             if file.name.startswith('.') or file.name.startswith('~'):
                 return
-
-
-            retries = 5
-            while retries > 0:
-                if is_file_locked(file):
-                    self.log(f"Файл {file.name} зайнятий (качається або редагується). Чекаємо...")
-                    time.sleep(1)
-                    retries -= 1
-                else:
-                    break 
             
-            if is_file_locked(file):
-                self.log(f"Пропуск: {file.name} відкритий в іншій програмі.")
+            attempts = 0
+            max_attempts = 10
+            is_ready = False
+
+            while attempts < max_attempts:
+                locked = is_file_locked(file)
+                
+                last_modified_delta = time.time() - file.stat().st_mtime
+                is_fresh = last_modified_delta < 1.0 
+
+                if locked:
+                    self.log(f"Файл {file.name} зайнятий системою. Чекаю...")
+                elif is_fresh:
+                    self.log(f"Файл {file.name} занадто 'гарячий' (зберігається). Чекаю...")
+                else:
+                    is_ready = True
+                    break
+
+                time.sleep(1)
+                attempts += 1
+
+            if not is_ready:
+                self.log(f"Пропуск: {file.name} не вдалося захопити (зайнятий).")
                 return
 
 
@@ -144,6 +172,7 @@ class DownloadHandler(FileSystemEventHandler):
             self.log(f"Помилка при обробці: {e}")
         
         finally:
+            # Видаляємо з сету файли які обробляли
             if str(file) in self.processing_files:
                 self.processing_files.remove(str(file))
 
@@ -177,6 +206,7 @@ class MonitorManager:
         if self.is_running:
             self.observer.stop() 
             self.observer.join() 
+            # Так як обсервер одноразовий, готуємо наступний
             self.observer = Observer() 
             self.is_running = False
             return "Моніторинг зупинено"
