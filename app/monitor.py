@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import shutil
 import time
-
+import subprocess
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -49,6 +49,26 @@ def file_moving(folder_name: str, file: Path, is_picture=False) -> None:
 
     return None
 
+# Перевіряє чи файл зайнятий іншою програмою
+def is_file_locked(filepath: Path) -> bool:
+    if os.name == 'nt': 
+        try:
+            os.rename(filepath, filepath)
+            return False
+        except OSError:
+            return True
+
+    else: 
+        try:
+            result = subprocess.run(
+                ['lsof', str(filepath)], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
 
 file_name = 'user_data.json'
 user = User(file_name)
@@ -86,6 +106,24 @@ class DownloadHandler(FileSystemEventHandler):
 
         if file.suffix in ['.crdownload', '.part', '.tmp']:
             return
+
+        if file.name.startswith('.') or file.name.startswith('~'):
+            return
+
+
+        retries = 5
+        while retries > 0:
+            if is_file_locked(file):
+                self.log(f"Файл {file.name} зайнятий (качається або редагується). Чекаємо...")
+                time.sleep(1)
+                retries -= 1
+            else:
+                break 
+        
+        if is_file_locked(file):
+            self.log(f"Пропуск: {file.name} відкритий в іншій програмі.")
+            return
+
 
         for folder_name, extension in rules.items():
             if file.suffix.lower() in extension:
