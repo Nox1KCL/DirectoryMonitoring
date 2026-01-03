@@ -9,7 +9,7 @@ from watchdog.events import FileSystemEventHandler
 
 from user import User
 
-
+# Добавити в документацію для Linux скачати lsof
 
 def clear_console():
     if os.name == 'nt':
@@ -89,6 +89,7 @@ pictures_path = user.pictures_path
 class DownloadHandler(FileSystemEventHandler):
     def __init__(self, callback_func):
         self.callback_func = callback_func
+        self.processing_files = set()
 
 
     def log(self, message):
@@ -100,37 +101,51 @@ class DownloadHandler(FileSystemEventHandler):
     
     def process_file(self, file_path) -> None:
         file = Path(file_path)
+
+        if str(file) in self.processing_files:
+            return
         
-        if not file.exists() or file.is_dir():
-            return
+        self.processing_files.add(str(file))
 
-        if file.suffix in ['.crdownload', '.part', '.tmp']:
-            return
+        try:
 
-        if file.name.startswith('.') or file.name.startswith('~'):
-            return
+            if not file.exists() or file.is_dir():
+                return
+
+            if file.suffix in ['.crdownload', '.part', '.tmp']:
+                return
+
+            if file.name.startswith('.') or file.name.startswith('~'):
+                return
 
 
-        retries = 5
-        while retries > 0:
+            retries = 5
+            while retries > 0:
+                if is_file_locked(file):
+                    self.log(f"Файл {file.name} зайнятий (качається або редагується). Чекаємо...")
+                    time.sleep(1)
+                    retries -= 1
+                else:
+                    break 
+            
             if is_file_locked(file):
-                self.log(f"Файл {file.name} зайнятий (качається або редагується). Чекаємо...")
-                time.sleep(1)
-                retries -= 1
-            else:
-                break 
-        
-        if is_file_locked(file):
-            self.log(f"Пропуск: {file.name} відкритий в іншій програмі.")
+                self.log(f"Пропуск: {file.name} відкритий в іншій програмі.")
+                return
+
+
+            for folder_name, extension in rules.items():
+                if file.suffix.lower() in extension:
+                    is_picture = (folder_name == "Images")
+                    file_moving(folder_name=folder_name, file=file, is_picture=is_picture)
+
             return
-
-
-        for folder_name, extension in rules.items():
-            if file.suffix.lower() in extension:
-                is_picture = (folder_name == "Images")
-                file_moving(folder_name=folder_name, file=file, is_picture=is_picture)
-
-        return
+        
+        except Exception as e:
+            self.log(f"Помилка при обробці: {e}")
+        
+        finally:
+            if str(file) in self.processing_files:
+                self.processing_files.remove(str(file))
 
     # Реагує на файл який створено / добавлено
     def on_created(self, event) -> None:
