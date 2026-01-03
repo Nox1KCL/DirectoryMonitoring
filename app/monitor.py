@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import time
 
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -66,6 +67,17 @@ pictures_path = user.pictures_path
 
 # Обробник бібліотеки watchdog, який слідкує за подіями у папці Download
 class DownloadHandler(FileSystemEventHandler):
+    def __init__(self, callback_func):
+        self.callback_func = callback_func
+
+
+    def log(self, message):
+        if self.callback_func:      
+            self.callback_func(message) 
+        else:
+            print(message)          
+
+    
     def process_file(self, file_path) -> None:
         file = Path(file_path)
         
@@ -91,33 +103,27 @@ class DownloadHandler(FileSystemEventHandler):
         print(f"Файл перейменовано: з {Path(str(event.src_path)).name} на {Path(str(event.dest_path)).name}")
         self.process_file(event.dest_path)
 
-# Створюємо екземпляр класу обробника
-download_handler = DownloadHandler()
-# Екземляр спостерігача
-observer = Observer()
-# Налаштовується спостерігача
-observer.schedule(download_handler, str(downloads_path), recursive=False)
-# запуск спостерігача
-observer.start()
 
+class MonitorManager:
+    def __init__(self, log_callback=None):
+        self.observer = Observer()
+        self.handler = DownloadHandler(callback_func=log_callback) 
+        self.path = str(user.downloads_path)
+        self.is_running = False
 
+    # Функція СТАРТ
+    def start(self):
+        if not self.is_running:
+            self.observer.schedule(self.handler, self.path, recursive=False)
+            self.observer.start()
+            self.is_running = True
+            return "Моніторинг запущено"
 
-clear_console()
-
-print('-' * 20)
-print(downloads_path)
-print(pictures_path)
-print('-' * 20)
-
-try:
-    while True:
-        if user.first_launch:
-            print("Its your first launch!", user.first_launch)
-            user.first_launch = False
-         
-        time.sleep(10)
-except KeyboardInterrupt:
-    observer.stop()
-finally:
-    user.save_to_json(user.data, file_name)
-    observer.join()
+    # Функція СТОП
+    def stop(self):
+        if self.is_running:
+            self.observer.stop() 
+            self.observer.join() 
+            self.observer = Observer() 
+            self.is_running = False
+            return "Моніторинг зупинено"
