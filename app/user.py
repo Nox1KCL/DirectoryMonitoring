@@ -16,6 +16,7 @@ class User:
 
         if self.__user_data.get('id') is None:
             self.__user_data['first_launch'] = True
+            self.__user_data['recursive'] = False
             self.__user_data['id'] = current_hwid
             self.__user_data['rules'] = dict()
             self.save_to_json(self.__user_data, file_name)

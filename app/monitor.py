@@ -92,6 +92,7 @@ rules = {
     "Images": [".jpg", ".jpeg", ".png", ".gif"],
     "Documents": [".pdf", ".docx", ".txt", ".xlsx"],
     "Audio": [".mp3", ".wav"],
+    "Archives": [".zip", ".rar", ".7z", ".tar", ".gz", ".iso"],
     "Programs": [".exe", ".deb", ".appimage"]
 }
 
@@ -125,7 +126,10 @@ class DownloadHandler(FileSystemEventHandler):
         self.processing_files.add(str(file))
 
         try:
-
+            
+            if file.parent.name in rules:
+                return
+            
             if not file.exists() or file.is_dir():
                 return
 
@@ -196,7 +200,9 @@ class MonitorManager:
     # Функція СТАРТ
     def start(self):
         if not self.is_running:
-            self.observer.schedule(self.handler, self.path, recursive=False)
+            fresh_data = user.load_from_json('user_data.json')
+            is_recursive = fresh_data.get('recursive', False)
+            self.observer.schedule(self.handler, self.path, recursive=is_recursive)
             self.observer.start()
             self.is_running = True
             return "Моніторинг запущено"
@@ -210,3 +216,8 @@ class MonitorManager:
             self.observer = Observer() 
             self.is_running = False
             return "Моніторинг зупинено"
+    
+    def restart(self):
+        self.stop()
+        self.start()
+        return "Моніторинг перезапущено"

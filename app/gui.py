@@ -2,188 +2,311 @@ import customtkinter as ctk
 import pystray
 from PIL import Image, ImageDraw
 import threading
-from monitor import MonitorManager
-from user import User
-from tkinter import filedialog
 import os
+from tkinter import filedialog
 
+# Імпортуємо твій бекенд
+from monitor import MonitorManager, rules 
+from user import User
 
 class SideBar(ctk.CTkFrame):
     def __init__(self, master, command, **kwargs):
         super().__init__(master, **kwargs)
         self.grid_propagate(False)
 
-        self.opt_default_setting = ctk.CTkButton(self, 
-                                                 text='Default setting',
-                                                 fg_color="transparent",
-                                                 command=lambda: command("default_setting"))
-        self.opt_default_setting.grid(row=1, column=0, padx=5,pady=5, sticky="ew")
+        # Логотип (Чорний в Light, Білий в Dark)
+        self.lbl_logo = ctk.CTkLabel(self, text="DirMonitor", font=("Arial", 20, "bold"),
+                                     text_color=("gray10", "gray90")) 
+        self.lbl_logo.grid(row=0, column=0, padx=20, pady=(20, 10))
 
-        self.opt_documents = ctk.CTkButton(self, 
-                                           text='Documents', 
-                                           fg_color="transparent",
-                                           )
-        self.opt_documents.grid(row=2, column=0, padx=5,pady=5, sticky="ew")
+        # 1. Головна
+        self.btn_dashboard = ctk.CTkButton(self, text='Monitor Control', fg_color="transparent", anchor="w",
+                                           text_color=("gray10", "gray90"), # <--- ФІКС ТУТ
+                                           command=lambda: command("dashboard"))
+        self.btn_dashboard.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+
+        # 2. Налаштування
+        self.btn_settings = ctk.CTkButton(self, text='General Settings', fg_color="transparent", anchor="w",
+                                          text_color=("gray10", "gray90"), # <--- ФІКС ТУТ
+                                          command=lambda: command("Settings"))
+        self.btn_settings.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+
+        # Розділювач
+        self.lbl_cats = ctk.CTkLabel(self, text="CATEGORIES", font=("Arial", 10), anchor="w",
+                                     text_color=("gray50", "gray70")) # Трохи світліший сірий
+        self.lbl_cats.grid(row=3, column=0, padx=20, pady=(15, 5), sticky="ew")
+
+        # 3. Категорії
+        categories = ["Documents", "Images", "Audio", "Archives", "Programs"]
         
-        self.opt_pictures = ctk.CTkButton(self, 
-                                          text='Pictures', 
-                                          fg_color="transparent",
-                                          )
-        self.opt_pictures.grid(row=3, column=0, padx=5,pady=5, sticky="ew")
+        for i, cat in enumerate(categories, start=4):
+            if cat in rules:
+                btn = ctk.CTkButton(self, text=cat, fg_color="transparent", anchor="w",
+                                    text_color=("gray10", "gray90"), # <--- ФІКС ТУТ
+                                    command=lambda c=cat: command(c))
+                btn.grid(row=i, column=0, padx=10, pady=2, sticky="ew")
 
 
-class DefSettingFrame(ctk.CTkFrame):
+class GlobalSettingsFrame(ctk.CTkFrame):
+    """
+    Сторінка загальних налаштувань (Рекурсія, Тема і т.д.)
+    """
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
-        self.grid_propagate(False)
+        self.app = self.winfo_toplevel() # Доступ до User і Monitor
 
+        # Заголовок
+        self.lbl_title = ctk.CTkLabel(self, text="Global Settings", font=("Arial", 24, "bold"),
+                              text_color=("gray90")) # <--- Чорний для Light, Білий для Dark
+        self.lbl_title.pack(pady=20, padx=20, anchor="w")
+
+        # --- Блок Моніторингу ---
+        self.frame_monitor = ctk.CTkFrame(self)
+        self.frame_monitor.pack(pady=10, padx=20, fill="x")
+
+        self.lbl_monitor = ctk.CTkLabel(self.frame_monitor, text="Monitoring Logic", font=("Arial", 14, "bold"))
+        self.lbl_monitor.pack(pady=10, padx=10, anchor="w")
+
+        # Перемикач: Рекурсія
+        self.switch_recursive = ctk.CTkSwitch(self.frame_monitor, 
+                                              text="Recursive Scan (Check subfolders)",
+                                              command=self.toggle_recursive)
+        self.switch_recursive.pack(pady=10, padx=20, anchor="w")
+        
+        # Перемикач: Автозапуск
+        self.switch_autostart = ctk.CTkSwitch(self.frame_monitor, text="Run on Windows Startup (Coming soon)")
+        self.switch_autostart.configure(state="disabled")
+        self.switch_autostart.pack(pady=10, padx=20, anchor="w")
+
+        # --- Блок Зовнішнього вигляду ---
+        self.frame_appearance = ctk.CTkFrame(self)
+        self.frame_appearance.pack(pady=10, padx=20, fill="x")
+        
+        self.lbl_app = ctk.CTkLabel(self.frame_appearance, text="Appearance", font=("Arial", 14, "bold"))
+        self.lbl_app.pack(pady=10, padx=10, anchor="w")
+
+        self.switch_theme = ctk.CTkSwitch(self.frame_appearance, 
+                                          text="Dark Mode",
+                                          command=self.toggle_theme)
+        self.switch_theme.select() # За замовчуванням темна
+        self.switch_theme.pack(pady=10, padx=20, anchor="w")
+
+        self._load_initial_state()
+
+    def _load_initial_state(self):
+        is_recursive = self.app.user.data.get("recursive", False)  # pyright: ignore[reportAttributeAccessIssue]
+        if is_recursive:
+            self.switch_recursive.select() 
+
+    def toggle_recursive(self):
+        state = self.switch_recursive.get()
+        print(f"Recursive scan set to: {bool(state)}")
+        self.app.user.data['recursive'] = state # pyright: ignore[reportAttributeAccessIssue]
+        self.app.user.save_to_json(self.app.user.data, "user_data.json") # pyright: ignore[reportAttributeAccessIssue]
+        if self.app.monitor_manager.is_running: # type: ignore
+            msg = self.app.monitor_manager.restart() # type: ignore
+            self.app.frames["dashboard"].update_log(msg) # type: ignore
+        
+
+    def toggle_theme(self):
+        if self.switch_theme.get():
+            ctk.set_appearance_mode("Dark")
+        else:
+            ctk.set_appearance_mode("Light")
+
+
+class MonitorControlFrame(ctk.CTkFrame):
+    """Головна сторінка (Dashboard)"""
+    def __init__(self, master, monitor_manager: MonitorManager, **kwargs):
+        super().__init__(master, **kwargs)
+        self.monitor = monitor_manager
+        
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1) 
+
+        # 1. Верхня панель
+        self.buttons_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.buttons_frame.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
+        
+        self.btn_start = ctk.CTkButton(self.buttons_frame, 
+                                       text="START MONITORING",
+                                       fg_color="#2CC985",
+                                       hover_color="#229965",
+                                       command=self.start_monitoring)
+        self.btn_start.pack(side="left", padx=10)
+
+        self.btn_stop = ctk.CTkButton(self.buttons_frame, 
+                                      text="STOP",
+                                      fg_color="#C92C2C",
+                                      hover_color="#992222",
+                                      state="disabled",
+                                      command=self.stop_monitoring)
+        self.btn_stop.pack(side="left", padx=10)
+
+        # 2. Лог
+        self.log_box = ctk.CTkTextbox(self, font=("Consolas", 12))
+        self.log_box.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="nsew")
+        self.log_box.insert("0.0", "System ready...\n")
+
+    def update_log(self, message):
+        self.after(0, lambda: self._write_log(message))
+
+    def _write_log(self, message):
+        self.log_box.insert("end", f"> {message}\n")
+        self.log_box.see("end")
+
+    def start_monitoring(self):
+        msg = self.monitor.start()
+        if msg:
+            self.update_log(msg)
+            self.btn_start.configure(state="disabled")
+            self.btn_stop.configure(state="normal")
+
+    def stop_monitoring(self):
+        msg = self.monitor.stop()
+        if msg:
+            self.update_log(msg)
+            self.btn_start.configure(state="normal")
+            self.btn_stop.configure(state="disabled")
+
+
+class CategorySettingsFrame(ctk.CTkFrame):
+    """Сторінка налаштувань категорій"""
+    def __init__(self, master, category_name, available_extensions, **kwargs):
+        super().__init__(master, **kwargs)
+        self.app = self.winfo_toplevel()
+        self.category_name = category_name
+        self.available_extensions = available_extensions
+        self.path_json_key = f"{category_name.lower()}_path"
+
+        self._init_ui()
+        self._load_saved_data()
+
+    def _init_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
 
-        self.app = self.winfo_toplevel()
-        saved_text = self.app.user.data.get("documents_path", "You don't have path") # pyright: ignore[reportAttributeAccessIssue]
+        self.lbl_title = ctk.CTkLabel(self, text=f"Settings for {self.category_name}", font=("Arial", 20, "bold"))
+        self.lbl_title.grid(row=0, column=0, columnspan=2, padx=20, pady=20, sticky="w")
 
-        self.extensions()
+        # Шлях
+        self.lbl_current_path = ctk.CTkLabel(self, text="Path: Not set", anchor="w")
+        self.lbl_current_path.grid(row=1, column=0, columnspan=2, padx=20, pady=(0, 5), sticky="ew")
 
-        self.path_field = ctk.CTkEntry(self,
-                                       width=520,
-                                       placeholder_text="Enter path to save",
-                                       )
-        self.path_field.bind('<Return>', self.save_path)
-        self.path_field.grid(row=0, column=1, padx=20, pady=40)
+        self.ent_path = ctk.CTkEntry(self, placeholder_text="Enter folder path...")
+        self.ent_path.bind('<Return>', self.save_path)
+        self.ent_path.grid(row=2, column=0, padx=(20, 10), pady=10, sticky="ew")
 
-        self.btn_browse = ctk.CTkButton(self, 
-                                text="...",
-                                width=10,
-                                command=self.browse_folder)
-        self.btn_browse.grid(row=0, column=2, padx=10)
+        self.btn_browse = ctk.CTkButton(self, text="Browse", width=60, command=self.browse_folder)
+        self.btn_browse.grid(row=2, column=1, padx=(0, 20), pady=10)
 
-        self.current_path_label = ctk.CTkLabel(self,
-                                               text=f"Current path: {saved_text}",
-                                               anchor='w',
-                                               )
-        self.current_path_label.grid(row=0, column=0, columnspan=2, padx=20, pady=(70, 5), sticky="ew")
-        if saved_text != "You don't have path":
-            self.path_field.insert(0, saved_text)
+        # Розширення
+        self.lbl_ext = ctk.CTkLabel(self, text="Select extensions to monitor:", font=("Arial", 14))
+        self.lbl_ext.grid(row=3, column=0, padx=20, pady=(20, 10), sticky="w")
 
+        self.checkbox_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.checkbox_frame.grid(row=4, column=0, columnspan=2, padx=20, sticky="w")
 
+        self.checkboxes = {}
+        for idx, ext in enumerate(self.available_extensions):
+            cb = ctk.CTkCheckBox(self.checkbox_frame, 
+                                 text=ext, 
+                                 font=("Consolas", 14),
+                                 command=self.save_extensions)
+            cb.grid(row=0, column=idx, padx=10, pady=5)
+            self.checkboxes[ext] = cb
 
-    def extensions(self):
-        self.app = self.winfo_toplevel()
-        current_rules = self.app.user.data["rules"].get("Documents", []) # pyright: ignore[reportAttributeAccessIssue]
+    def _load_saved_data(self):
+        saved_path = self.app.user.data.get(self.path_json_key, None) # pyright: ignore
+        if saved_path:
+            self.ent_path.insert(0, saved_path)
+            # ФІКС КОЛЬОРУ: Прибираємо text_color="white", використовуємо tuple
+            self.lbl_current_path.configure(text=f"Path: {saved_path}", text_color=("gray10", "gray90"))
+        else:
+            self.lbl_current_path.configure(text="Path: Not set (files will not be moved)")
 
-        self.checkbox_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.checkbox_container.grid(row=1, column=1, columnspan=2, sticky="w")
-
-        self.docx = ctk.CTkCheckBox(self.checkbox_container,
-                                    text=".docx",
-                                    font=('Arial', 15),
-                                    command=self.save_checkboxes)
-        self.docx.grid(row=0, column=0, padx=(20, 15))
-
-        if ".docx" in current_rules:
-            self.docx.select()
-
-        self.doc = ctk.CTkCheckBox(self.checkbox_container, 
-                                    text=".doc",
-                                    font=('Arial', 15),
-                                    command=self.save_checkboxes)
-        self.doc.grid(row=0, column=1, padx=0)
-
-        if ".doc" in current_rules:
-            self.doc.select()
-        
-        self.xlsx = ctk.CTkCheckBox(self.checkbox_container, 
-                                    text=".xlsx",
-                                    font=('Arial', 15),
-                                    command=self.save_checkboxes)
-        self.xlsx.grid(row=0, column=2, padx=0)
-
-        if ".xlsx" in current_rules:
-            self.xlsx.select()
+        saved_rules = self.app.user.data["rules"].get(self.category_name, []) # pyright: ignore
+        for ext, cb in self.checkboxes.items():
+            if ext in saved_rules:
+                cb.select()
 
     def save_path(self, event=None):
-        text = self.path_field.get()
-
-        if os.path.exists(text) and os.path.isdir(text):
-            self.app.global_saved_path = text # pyright: ignore[reportAttributeAccessIssue]
-            print(f"Valid path saved: {text}")
-            self.app.user.data["documents_path"] = text # pyright: ignore[reportAttributeAccessIssue]
-            self.app.user.save_to_json(self.app.user.data, "user_data.json")  # pyright: ignore[reportAttributeAccessIssue]
-            self.current_path_label.configure(text=f"Current path: {text}", text_color="white") 
+        path = self.ent_path.get()
+        if os.path.exists(path) and os.path.isdir(path):
+            self.app.user.data[self.path_json_key] = path # pyright: ignore
+            self.app.user.save_to_json(self.app.user.data, "user_data.json") # pyright: ignore
+            
+            # ФІКС КОЛЬОРУ: Використовуємо адаптивні кольори (Чорний для світлої / Білий для темної)
+            self.lbl_current_path.configure(text=f"Path: {path}", text_color=("gray10", "gray90"))
+            print(f"[{self.category_name}] Path saved: {path}")
         else:
-            print("Error: Path does not exist")
-            self.current_path_label.configure(text=f"Error: Directory '{text}' not found!", text_color="#FF5555")
-
-
-    def save_checkboxes(self):
-        selected_extensions = []
-
-        if self.docx.get() == 1:
-            selected_extensions.append(".docx")
-        
-        if self.doc.get() == 1:
-            selected_extensions.append(".doc")
-
-        if self.xlsx.get() == 1:
-            selected_extensions.append(".xlsx")         
-
-        print(f"Save rules: {selected_extensions}")
-
-        self.app.user.data["rules"]["Documents"] = selected_extensions # pyright: ignore[reportAttributeAccessIssue]
-        
-        self.app.user.save_to_json(self.app.user.data, "user_data.json") # pyright: ignore[reportAttributeAccessIssue]
-
+            # Для помилки червоний колір ок в обох темах
+            self.lbl_current_path.configure(text="Error: Directory does not exist!", text_color="#FF5555")
 
     def browse_folder(self):
-        path = filedialog.askdirectory() 
+        path = filedialog.askdirectory()
         if path:
-            self.path_field.delete(0, "end") 
-            self.path_field.insert(0, path)
-            print(f"Chosen dir: {path}")
-
+            self.ent_path.delete(0, "end")
+            self.ent_path.insert(0, path)
             self.save_path()
 
-class DocumentsFrame(ctk.CTkFrame):
-    def __init__(self, master):
-        super().__init__(master)
+    def save_extensions(self):
+        selected = []
+        for ext, cb in self.checkboxes.items():
+            if cb.get() == 1:
+                selected.append(ext)
+        self.app.user.data["rules"][self.category_name] = selected # pyright: ignore
+        self.app.user.save_to_json(self.app.user.data, "user_data.json") # pyright: ignore
+        print(f"[{self.category_name}] Rules updated: {selected}")
 
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.grid_propagate(False)
-
-        # self.monitor = MonitorManager(log_callback=self.update_log_box)
+        
         self.title("DirectoryMonitor")
         self.geometry("800x600")
         self.resizable(False, False)
+        self.grid_propagate(False)
+        
         self.user = User("user_data.json")
+        self.monitor_manager = MonitorManager() 
 
-        #self.protocol('WM_DELETE_WINDOW', self.withdraw_window)
-
-        self.global_saved_path = "You don't have path"
+        self.protocol('WM_DELETE_WINDOW', self.withdraw_window)
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=1)
 
-        self.sidebar = SideBar(self, command=self.select_frame_by_name, width=150)
-        self.sidebar.grid(row=0, column=0, padx=15, pady=10, sticky="nsw")
+        self.sidebar = SideBar(self, command=self.select_frame, width=150)
+        self.sidebar.grid(row=0, column=0, padx=10, pady=10, sticky="nsw")
 
+        self.frames = {}
+        
+        self.frames["dashboard"] = MonitorControlFrame(self, self.monitor_manager, width=600, fg_color="gray20")
+        self.monitor_manager.handler.callback_func = self.frames["dashboard"].update_log
 
-        self.active_frame = None
+        # === ДОДАНО: Сторінка налаштувань ===
+        self.frames["Settings"] = GlobalSettingsFrame(self, width=600, fg_color="gray20")
 
-    def select_frame_by_name(self, name):
-        if self.active_frame is not None:
-            self.active_frame.grid_forget()
+        # === ДОДАНО: Авто-генерація сторінок для ВСІХ категорій з rules ===
+        # (Documents, Images, Audio, Archives, Programs)
+        for category, extensions in rules.items():
+            self.frames[category] = CategorySettingsFrame(self, 
+                                                          category_name=category, 
+                                                          available_extensions=extensions,
+                                                          width=600, fg_color="gray20")
 
-        if name == "default_setting":
-            self.active_frame = DefSettingFrame(self, width=605, fg_color="gray25")
-        elif name == "documents":
-            self.active_frame = DocumentsFrame(self)
+        self.select_frame("dashboard")
 
-        if self.active_frame is not None:
-            self.active_frame.grid(row=0, column=1, sticky="nsew")
+    def select_frame(self, name):
+        for frame in self.frames.values():
+            frame.grid_forget()
+        
+        if name in self.frames:
+            self.frames[name].grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        else:
+            print(f"Error: Frame '{name}' not found")
 
     def withdraw_window(self):  
         self.withdraw()
@@ -192,22 +315,20 @@ class App(ctk.CTk):
 
     def create_tray_icon(self):
         try:
-
-            image = Image.new('RGB', (64, 64), color=(255, 0, 0))
+            image = Image.new('RGB', (64, 64), color=(200, 50, 50))
             draw = ImageDraw.Draw(image)
             draw.rectangle((16, 16, 48, 48), fill=(255, 255, 255))
 
             menu = (
-                pystray.MenuItem('Open', self.show_window),
+                pystray.MenuItem('Open Monitor', self.show_window),
                 pystray.MenuItem('Exit', self.quit_window)
             )
 
-            self.icon = pystray.Icon("name", image, "Directory Monitor", menu)
-            
+            self.icon = pystray.Icon("DirectoryMonitor", image, "Directory Monitor", menu)
             self.icon.run()
 
         except Exception as e:
-            print(f"ПОМИЛКА ТРЕЮ: {e}")
+            print(f"Tray Error: {e}")
             self.after(0, self.deiconify)
 
     def show_window(self, icon, item):
@@ -215,42 +336,12 @@ class App(ctk.CTk):
         self.after(0, self.deiconify) 
 
     def quit_window(self, icon, item):
+        self.monitor_manager.stop()
         self.icon.stop() 
         self.quit()       
-        self.destroy()    
+        self.destroy()
         import sys
-        sys.exit()   
-
-
-
-
-    #     self.textbox = ctk.CTkTextbox(self, width=300, height=200)
-    #     # self.textbox.pack(pady=10)
-
-    #     self.btn_start = ctk.CTkButton(self, text="Start", command=self.start_click)
-    #     # self.btn_start.pack(pady=10)
-
-    #     self.btn_stop = ctk.CTkButton(self, text="Stop", command=self.stop_click, state="disabled")
-    #     # self.btn_stop.pack(pady=10)
-
-    # Callback 
-    # def update_log_box(self, message):
-    #     self.textbox.insert("end", message + "\n")
-    #     self.textbox.see("end")
-
-    # def start_click(self):
-    #     result_message = self.monitor.start()
-    #     if result_message:
-    #         self.update_log_box(result_message)
-    #         self.btn_start.configure(state="disabled")
-    #         self.btn_stop.configure(state="normal")
-
-    # def stop_click(self):
-    #     result_message = self.monitor.stop()
-    #     if result_message:
-    #         self.update_log_box(result_message)
-    #         self.btn_start.configure(state="normal")
-    #         self.btn_stop.configure(state="disabled")
+        sys.exit()
 
 if __name__ == "__main__":
     app = App()
