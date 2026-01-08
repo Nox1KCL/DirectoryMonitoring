@@ -4,3 +4,4 @@ packaging==25.0
 pillow==12.1.0
 platformdirs==4.5.1
 watchdog==6.0.0
+pystray==0.19.5
