@@ -19,21 +19,22 @@ class SideBar(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         self.configure(fg_color=("white", "gray17"))
         self.grid_propagate(False)
+        adaptive_bg = ("gray10", "gray90")
 
         # Логотип 
         self.lbl_logo = ctk.CTkLabel(self, text="DirMonitor", font=("Arial", 20, "bold"),
-                                     text_color=("gray10", "gray90")) 
+                                     text_color=adaptive_bg) 
         self.lbl_logo.grid(row=0, column=0, padx=20, pady=(20, 10))
 
         # Головна
         self.btn_dashboard = ctk.CTkButton(self, text='Monitor Control', fg_color="transparent", anchor="w",
-                                           text_color=("gray10", "gray90"), 
+                                           text_color=adaptive_bg, 
                                            command=lambda: command("dashboard"))
         self.btn_dashboard.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
         # Налаштування
         self.btn_settings = ctk.CTkButton(self, text='General Settings', fg_color="transparent", anchor="w",
-                                          text_color=("gray10", "gray90"),
+                                          text_color=adaptive_bg,
                                           command=lambda: command("Settings"))
         self.btn_settings.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
 
@@ -48,7 +49,7 @@ class SideBar(ctk.CTkFrame):
         for i, cat in enumerate(categories, start=4):
             if cat in rules:
                 btn = ctk.CTkButton(self, text=cat, fg_color="transparent", anchor="w",
-                                    text_color=("gray10", "gray90"),
+                                    text_color=adaptive_bg,
                                     command=lambda c=cat: command(c))
                 btn.grid(row=i, column=0, padx=10, pady=2, sticky="ew")
 
@@ -88,10 +89,36 @@ class GlobalSettingsFrame(ctk.CTkFrame):
         
         # Автозапуск
         self.switch_autostart = ctk.CTkSwitch(self.frame_monitor, 
-                                              text="Run on Windows Startup (Coming soon)",
+                                              text="Run on Startup (Coming soon)",
                                               text_color=adaptive_bg)
         self.switch_autostart.configure(state="disabled")
         self.switch_autostart.pack(pady=10, padx=20, anchor="w")
+
+        # ЗМІНА ДИРЕКТОРІЇ ЯКУ МОНІТОРЯТЬ
+        self.frame_path = ctk.CTkFrame(self)
+        self.frame_path.pack(pady=10, padx=20, fill="x")
+        self.lbl_path_title = ctk.CTkLabel(
+            self.frame_path, 
+            text="Monitoring Folder", 
+            font=("Arial", 14, "bold"),
+            text_color=adaptive_bg
+        )
+        self.lbl_path_title.pack(pady=10, padx=10, anchor="w")
+        # Відображення поточного шляху
+        self.lbl_current_monitor_path = ctk.CTkLabel(
+            self.frame_path,
+            text="Path: Loading...",
+            text_color=adaptive_bg
+        )
+        self.lbl_current_monitor_path.pack(pady=5, padx=20, anchor="w")
+        # Кнопка вибору папки
+        self.btn_select_folder = ctk.CTkButton(
+            self.frame_path,
+            text="Select Folder",
+            command=self.select_monitoring_folder
+        )
+        self.btn_select_folder.pack(pady=10, padx=20, anchor="w")
+
 
         # Блок Зовнішнього вигляду
         self.frame_appearance = ctk.CTkFrame(self)
@@ -118,6 +145,13 @@ class GlobalSettingsFrame(ctk.CTkFrame):
         if is_recursive:
             self.switch_recursive.select() 
 
+            # Шлях моніторингу
+        monitoring_path = self.app.user.data.get( # type: ignore
+            'monitoring_path', 
+            str(self.app.user.default_path) # type: ignore
+        )
+        self.lbl_current_monitor_path.configure(text=f"Path: {monitoring_path}")
+
     # Міняє стан рекурсії + перезапускає прогу якщо включена під час перемикання
     def toggle_recursive(self):
         state = self.switch_recursive.get()
@@ -136,6 +170,29 @@ class GlobalSettingsFrame(ctk.CTkFrame):
             ctk.set_appearance_mode("Dark")
         else:
             ctk.set_appearance_mode("Light")
+
+
+    def select_monitoring_folder(self):
+        """Відкриває діалог вибору папки та зберігає вибір"""
+        folder = filedialog.askdirectory(
+            title="Select folder to monitor",
+            initialdir=self.app.user.data.get('monitoring_path', str(self.app.user.default_path)) # type: ignore
+        )
+        
+        if folder:
+            # Зберігаємо в JSON
+            self.app.user.data['monitoring_path'] = folder # type: ignore
+            self.app.user.save_to_json(self.app.user.data, "user_data.json") # type: ignore
+            
+            # Оновлюємо UI
+            self.lbl_current_monitor_path.configure(text=f"Path: {folder}")
+            print(f"Monitoring path changed to: {folder}")
+            
+            # Якщо моніторинг запущений перезапускаємо
+            if self.app.monitor_manager.is_running: # type: ignore
+                msg = self.app.monitor_manager.restart() # type: ignore
+                self.app.frames["dashboard"].update_log(msg) # type: ignore
+                self.app.frames["dashboard"].update_log(f"Now monitoring: {folder}") # type: ignore
 
 
 class MonitorControlFrame(ctk.CTkFrame):
@@ -217,7 +274,7 @@ class CategorySettingsFrame(ctk.CTkFrame):
     def _init_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
-        adaptive_bg = ("gray20", "gray95")
+        adaptive_bg = ("gray10", "gray90")
 
         self.lbl_title = ctk.CTkLabel(self, 
                                       text=f"Settings for {self.category_name}", 
@@ -240,7 +297,7 @@ class CategorySettingsFrame(ctk.CTkFrame):
         self.btn_browse = ctk.CTkButton(self, 
                                         text="Browse", 
                                         width=60,
-                                        text_color=adaptive_bg,
+                                        text_color="gray90",
                                         command=self.browse_folder)
         self.btn_browse.grid(row=2, column=1, padx=(0, 20), pady=10)
 
@@ -289,7 +346,7 @@ class CategorySettingsFrame(ctk.CTkFrame):
             self.app.user.save_to_json(self.app.user.data, "user_data.json") # pyright: ignore
             
             
-            self.lbl_current_path.configure(text=f"Path: {path}", text_color=("gray90", "gray10"))
+            self.lbl_current_path.configure(text=f"Path: {path}", text_color=("gray10", "gray90"))
             print(f"[{self.category_name}] Path saved: {path}")
         else:
             self.lbl_current_path.configure(text="Error: Directory does not exist!", text_color="#FF5555")

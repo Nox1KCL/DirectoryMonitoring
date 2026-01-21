@@ -51,13 +51,19 @@ def file_moving(file: Path,
             if not final_path.exists():
                 break
             counter += 1
-
+    # Створюємо папку призначення якщо не існує
+    path_to_save.mkdir(parents=True, exist_ok=True)
+    
     try:
         time.sleep(0.1)
+        # Перевіряємо чи файл все ще існує
+        if not file.exists():
+            print(f"File {file.name} no longer exists")
+            return None
         shutil.move(file, final_path)
         print(f"File {file.name} moved to {final_path}")
     except FileNotFoundError:
-        print("File not Found")
+        print(f"File not Found: {file}")
     except Exception as e:
         print(f"Undefined Error {e}")
 
@@ -86,8 +92,6 @@ def is_file_locked(filepath: Path) -> bool:
 
 file_name = 'user_data.json'
 user = User(file_name)
-# Дефолтний шлях для збереження
-downloads_path = user.downloads_path
 
 # Словник який відповідає за "сортування" файлів по принципу розширення : папка
 rules = {
@@ -117,15 +121,18 @@ class DownloadHandler(FileSystemEventHandler):
 
     # Отримуємо шлях куди зберегти файл
     def get_path(self, file: Path):
+        # Перезавантажуємо дані з JSON щоб отримати актуальні налаштування
+        fresh_data = user.load_from_json(file_name)
+        
         for folder_name, extension in rules.items():
             if file.suffix.lower() in extension:
                 # Беремо назву папки, шукаємо чи в файлі json є такий шлях і витягуємо
                 json_key = folder_name.lower() + "_path"
-                if json_key in user.data:
-                    path_to_save = Path(user.data[json_key])
+                if json_key in fresh_data:
+                    path_to_save = Path(fresh_data[json_key])
                     create_subfolder = False
                 else:
-                    path_to_save = downloads_path
+                    path_to_save = Path(user.data.get("monitoring_path", user.default_path))
                     create_subfolder = True
 
                 return folder_name, path_to_save, create_subfolder
@@ -163,9 +170,19 @@ class DownloadHandler(FileSystemEventHandler):
 
             # Перевіряємо чи файл зайнятий іншою прогою
             while attempts < max_attempts:
+                # Перевіряємо чи файл ще існує
+                if not file.exists():
+                    self.log(f"File {file.name} no longer exists.")
+                    return
+                
                 locked = is_file_locked(file)
                 
-                last_modified_delta = time.time() - file.stat().st_mtime
+                try:
+                    last_modified_delta = time.time() - file.stat().st_mtime
+                except FileNotFoundError:
+                    self.log(f"File {file.name} disappeared during processing.")
+                    return
+                
                 is_fresh = last_modified_delta < 1.0 
 
                 if locked:
@@ -218,14 +235,16 @@ class MonitorManager:
     def __init__(self, log_callback=None):
         self.observer = Observer()
         self.handler = DownloadHandler(callback_func=log_callback) 
-        self.path = str(user.downloads_path)
+        self.path = str(user.data.get("monitoring_path", user.default_path))
         self.is_running = False
 
 
     def start(self):
         if not self.is_running:
             fresh_data = user.load_from_json('user_data.json')
+            
             is_recursive = fresh_data.get('recursive', False)
+            self.path = str(fresh_data.get("monitoring_path", user.default_path))
             self.observer.schedule(self.handler, self.path, recursive=is_recursive)
             self.observer.start()
             self.is_running = True

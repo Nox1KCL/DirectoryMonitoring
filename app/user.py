@@ -1,4 +1,5 @@
 import json
+from os import path
 import uuid
 from pathlib import Path
 from platformdirs import user_downloads_dir, user_pictures_dir
@@ -7,8 +8,8 @@ from platformdirs import user_downloads_dir, user_pictures_dir
 
 class User:
     def __init__(self, file_name: str) -> None:
-        self.downloads_path = Path(user_downloads_dir())
-        self.pictures_path = Path(user_pictures_dir())
+        self.__default_path = Path(user_downloads_dir())
+        # self.__pictures_path = Path(user_pictures_dir())
 
         self.__user_data = self.load_from_json(file_name)
 
@@ -17,6 +18,7 @@ class User:
         if self.__user_data.get('id') is None:
             self.__user_data['first_launch'] = True
             self.__user_data['recursive'] = False
+            self.__user_data["monitoring_path"] = str(self.__default_path)
             self.__user_data['id'] = current_hwid
             self.__user_data['rules'] = dict()
             self.save_to_json(self.__user_data, file_name)
@@ -25,8 +27,12 @@ class User:
         elif self.__user_data.get('id') != current_hwid:
             print("Помилка: Цей конфігураційний файл не належить цьому пристрою!")
             exit() 
-
     
+
+    @property
+    def default_path(self) -> Path:
+        return self.__default_path
+        
     @property
     def data(self) -> dict:
         return self.__user_data
